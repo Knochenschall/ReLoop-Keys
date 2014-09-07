@@ -45,6 +45,10 @@ function ReLoop() {
    this.isPlaying = false;
    this.isRecording = false;
 
+   this.pageNames = [];
+   this.pageNumber = 0;
+   this.pageCount = null;
+
    // Creating Views:
    this.transport = host.createTransport();
    this.tracks = host.createTrackBank(8, 2, 8);
@@ -85,11 +89,21 @@ function ReLoop() {
 
    this.cDevice.addNextParameterPageEnabledObserver(function(on) {
       this.nextPageEnabled = on;
-      println(on);
+      //println(on);
    });
    this.cDevice.addPreviousParameterPageEnabledObserver(function(on) {
-      println(on);
+      //println(on);
    });
+   this.cDevice.addPageNamesObserver(function(names) {
+      pageNames = [];
+      for(var l = 0; l < arguments.length; l++) {
+         pageNames[l] = arguments[l];
+      }
+      pageCount = l;
+   })
+   this.cDevice.addSelectedPageObserver(0, function(page) {
+      pageNumber = page;
+   })
 
    for (var j = 0; j < 8; j++) {
       this.tracks.getTrack(j).getMute().addValueObserver( buttonObserver(j, this.mute, this.button1 ) );
@@ -112,6 +126,13 @@ function buttonObserver(index, valueToSet, button) {
 function init() {
    // Instatiate the main object:
    RL = ReLoop();
+
+   if (CNAME === "KeyPad") {
+      sendSysex("F0 AD F5 01 11 02 F7");
+   }
+   else if (CNAME === "KeyFadr") {
+      sendSysex("F0 AD F6 01 11 02 F7");
+   }
 }
 
 function onMidi(status, data1, data2) {
@@ -119,8 +140,8 @@ function onMidi(status, data1, data2) {
    var midi = new MidiData(status, data1, data2);
 
    // Print Midi Input to Console
-   printMidi(status, data1, data2);
-   println(midi.channel());
+   //printMidi(status, data1, data2);
+   //println(midi.channel());
 
    if (midi.isChannelController()) {
       // Transport:
@@ -157,7 +178,6 @@ function onMidi(status, data1, data2) {
       else if (midi.data1IsInRange8(RL.button1S[0])) {
          var index = midi.data1 - RL.button1S[0];
          RL.tracks.launchScene(index);
-         //RL.tracks.getClipLauncherScenes().launch(index);
          sendMidi(midi.status, RL.button1[index], RL.mute[index] ? 127 : 0);
       }
       // Scroll Scenes Up:
@@ -251,8 +271,8 @@ function onMidi(status, data1, data2) {
          // Next Parameter Page:
          else if (midi.data1 === RL.button3S[0]) {
             if (midi.isOn()) {
-               println(RL.nextPageEnabled);
-               if (RL.nextPageEnabled) {
+               //println(RL.nextPageEnabled);
+               if (RL.pageNumber < (RL.pageCount-1)) {
                   RL.cDevice.nextParameterPage();
                }
                else {
@@ -265,16 +285,17 @@ function onMidi(status, data1, data2) {
             var index = midi.data1 - RL.knob1[0];
             RL.cDevice.getMacro(index).getAmount().set(midi.data2, 127);
          }
-         // Sends:
+         // Common Parameters:
          else if (midi.data1IsInRange8(RL.knob2[0])) {
             var index = midi.data1 - RL.knob2[0];
             RL.cDevice.getCommonParameter(index).set(midi.data2, 128);
          }
+         // Parameters:
          else if (midi.data1IsInRange8(RL.knob3[0])) {
             var index = midi.data1 - RL.knob3[0];
             RL.cDevice.getParameter(index).set(midi.data2, 128);
          }
-         // Fader:
+         // Envelope Parameters
          else if (midi.data1IsInRange8(RL.fader[0])) {
             var index = midi.data1 - RL.fader[0];
             RL.cDevice.getEnvelopeParameter(index).set(midi.data2, 128);
