@@ -39,6 +39,10 @@ function ReLoop() {
    this.mute = [];
    this.solo = [];
    this.arm = [];
+   this.launch = [];
+   this.loop = false;
+   this.metronome = false;
+   this.overdub = false;
    this.nextPageEnabled = true;
 
    // State Variables:
@@ -48,12 +52,16 @@ function ReLoop() {
    this.pageNames = [];
    this.pageNumber = 0;
    this.pageCount = null;
+   this.pageHasChanged = false;
 
    // Creating Views:
    this.transport = host.createTransport();
    this.tracks = host.createTrackBank(8, 2, 8);
    this.cTrack = host.createCursorTrack(3, 0);
    this.cDevice = this.cTrack.getPrimaryDevice();
+
+   this.deviceHasChanged = false;
+   this.trackHasChanged = false;
 
 
    // Set Indications:
@@ -67,6 +75,8 @@ function ReLoop() {
       this.cDevice.getEnvelopeParameter(i).setIndication(true);
       this.cDevice.getCommonParameter(i).setIndication(true);
       this.cDevice.getParameter(i).setIndication(true);
+
+      this.launch[i] = false;
    }
 
    // User Controls:
@@ -81,10 +91,34 @@ function ReLoop() {
    this.transport.addIsPlayingObserver(function (on) {
       this.isPlaying = on;
       sendMidi(177 , this.play, on ? 127 : 0);
+      sendMidi(177 , this.stop, on ? 0 : 127);
    });
    this.transport.addIsRecordingObserver(function (on) {
       this.isRecording = on;
       sendMidi(177 , this.record, on ? 127 : 0);
+   });
+
+   this.transport.addIsLoopActiveObserver(function (on) {
+      this.loop = on;
+      sendMidi(RL.channel1, button3S[3], on ? 127 : 0);
+   });
+
+   this.transport.addClickObserver(function (on) {
+      this.metronome = on;
+      sendMidi(RL.channel1, button3S[5], on ? 127 : 0);
+   });
+
+   this.transport.addOverdubObserver(function(on) {
+      this.overdub = on;
+      sendMidi(RL.channel1, RL.recordS, on ? 127 : 0);
+      println("Test");
+   });
+
+   this.cDevice.addNameObserver(50, "None", function(name) {
+      if (this.deviceHasChanged) {
+         host.showPopupNotification("Current Device: " + name);
+         this.deviceHasChanged = false;
+      }
    });
 
    this.cDevice.addNextParameterPageEnabledObserver(function(on) {
@@ -95,14 +129,18 @@ function ReLoop() {
       //println(on);
    });
    this.cDevice.addPageNamesObserver(function(names) {
-      pageNames = [];
+      this.pageNames = [];
       for(var l = 0; l < arguments.length; l++) {
          pageNames[l] = arguments[l];
       }
       pageCount = l;
    })
    this.cDevice.addSelectedPageObserver(0, function(page) {
-      pageNumber = page;
+      this.pageNumber = page;
+      if (this.pageHasChanged) {
+         host.showPopupNotification ("Parameter Page: " + this.pageNames[page]);
+         this.pageHasChanged = false;
+      }
    })
 
    for (var j = 0; j < 8; j++) {
@@ -111,6 +149,12 @@ function ReLoop() {
       this.tracks.getTrack(j).getArm().addValueObserver( buttonObserver(j, this.arm, this.button3 ) );
    }
 
+   this.cTrack.addNameObserver(50, "None", function(name) {
+      if (this.trackHasChanged) {
+         host.showPopupNotification("Current Track: " + name);
+         this.trackHasChanged = false;
+      }
+   });
 
    return this;
 }
@@ -123,6 +167,7 @@ function buttonObserver(index, valueToSet, button) {
    };
 }
 
+
 function init() {
    // Instatiate the main object:
    RL = ReLoop();
@@ -133,6 +178,7 @@ function init() {
    else if (CNAME === "KeyFadr") {
       sendSysex("F0 AD F6 01 11 02 F7");
    }
+   setScene (-1);
 }
 
 function onMidi(status, data1, data2) {
@@ -141,7 +187,7 @@ function onMidi(status, data1, data2) {
 
    // Print Midi Input to Console
    //printMidi(status, data1, data2);
-   //println(midi.channel());
+   println(midi.channel());
 
    if (midi.isChannelController()) {
       // Transport:
@@ -157,6 +203,7 @@ function onMidi(status, data1, data2) {
       // Stop All Clips:
       else if (midi.data1 === RL.stopS) {
          if (midi.isOn()) RL.tracks.getClipLauncherScenes().stop();
+         setScene (-1);
       }
       // Record Enable:
       else if (midi.data1 === RL.record) {
@@ -168,17 +215,27 @@ function onMidi(status, data1, data2) {
       }
       // Toggle Metronome:
       else if (midi.data1 === RL.button3S[5]) {
-         if (midi.isOn()) RL.transport.toggleClick();
+         if (midi.isOn()) {
+            RL.transport.toggleClick();
+         }
+         else {
+            sendMidi(midi.status, midi.data1, RL.metronome ? 127 : 0);
+         }
       }
       // Toggle Loop:
       else if (midi.data1 === RL.button3S[3]) {
-         if (midi.isOn()) RL.transport.toggleLoop();
+         if (midi.isOn()) {
+            RL.transport.toggleLoop();
+         }
+         else {
+            sendMidi(midi.status, midi.data1, RL.loop ? 127 : 0);
+         }
       }
       // Launch Scene:
       else if (midi.data1IsInRange8(RL.button1S[0])) {
          var index = midi.data1 - RL.button1S[0];
          RL.tracks.launchScene(index);
-         sendMidi(midi.status, RL.button1[index], RL.mute[index] ? 127 : 0);
+         setScene(index);
       }
       // Scroll Scenes Up:
       else if (midi.data1 === RL.octaveDownS) {
@@ -192,6 +249,7 @@ function onMidi(status, data1, data2) {
       else if (midi.data1IsInRange8(RL.button1[0])) {
          var index = midi.data1 - RL.button1[0];
          RL.tracks.getTrack(index).getMute().set(midi.data2 > 64 ? true : false);
+         sendMidi(RL.channel1, midi.data1, RL.mute[index] ? 127 : 0);
       }
       // Solo:
       else if (midi.data1IsInRange8(RL.button2[0])) {
@@ -255,18 +313,22 @@ function onMidi(status, data1, data2) {
          // Cursor Track Previous:
          if (midi.data1 === RL.button3S[6]) {
             if (midi.isOn()) RL.cTrack.selectPrevious();
+            RL.trackHasChanged = true;
          }
          // Cursor Track Next:
          else if (midi.data1 === RL.button3S[7]) {
             if (midi.isOn()) RL.cTrack.selectNext();
+            RL.trackHasChanged = true;
          }
          // Cursor Device Previous:
          if (midi.data1 === RL.button3S[1]) {
             if (midi.isOn()) RL.cDevice.switchToDevice(DeviceType.ANY,ChainLocation.PREVIOUS);
+            RL.deviceHasChanged = true;
          }
          // Cursor Device Next:
          else if (midi.data1 === RL.button3S[2]) {
             if (midi.isOn()) RL.cDevice.switchToDevice(DeviceType.ANY,ChainLocation.NEXT);
+            RL.deviceHasChanged = true;
          }
          // Next Parameter Page:
          else if (midi.data1 === RL.button3S[0]) {
@@ -278,6 +340,7 @@ function onMidi(status, data1, data2) {
                else {
                   RL.cDevice.setParameterPage(0);
                }
+               RL.pageHasChanged = true;
             }
          }
          // Macros:
@@ -306,7 +369,16 @@ function onMidi(status, data1, data2) {
 }
 
 function onSysex(data) {
-   printSysex (data);
+   //printSysex (data);
+}
+
+function setScene(index) {
+
+   for (var i = 0; i < 8; i++) {
+      RL.launch[i] = (i === index) ? true : false;
+      sendMidi(RL.channel1, RL.button1S[i], RL.launch[i] ? 127 : 0);
+   }
+
 }
 
 function exit()
