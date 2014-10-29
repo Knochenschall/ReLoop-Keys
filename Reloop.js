@@ -62,8 +62,8 @@ function ReLoop() {
    this.tracks = host.createTrackBank(8, 2, 8);
    this.cTrack = host.createCursorTrack(3, 0);
    this.cDevice = this.cTrack.getPrimaryDevice();
+   this.application = host.createApplication();
 
-   this.deviceHasChanged = false;
    this.trackHasChanged = false;
 
 
@@ -123,34 +123,11 @@ function ReLoop() {
       this.canScrollScenesUp = on;
    });
 
-   //this.cDevice.addNameObserver(50, "None", function(name) {
-   //   if (this.deviceHasChanged) {
-   //      host.showPopupNotification("Current Device: " + name);
-   //      this.deviceHasChanged = false;
-   //   }
-   //});
-
    this.cDevice.addNextParameterPageEnabledObserver(function(on) {
       this.nextPageEnabled = on;
-      //println(on);
    });
    this.cDevice.addPreviousParameterPageEnabledObserver(function(on) {
-      //println(on);
    });
-   //this.cDevice.addPageNamesObserver(function(names) {
-   //   this.pageNames = [];
-   //   for(var l = 0; l < arguments.length; l++) {
-   //      pageNames[l] = arguments[l];
-   //   }
-   //   pageCount = l;
-   //});
-   //this.cDevice.addSelectedPageObserver(0, function(page) {
-   //   this.pageNumber = page;
-   //   if (this.pageHasChanged) {
-   //      host.showPopupNotification ("Parameter Page: " + this.pageNames[page]);
-   //      this.pageHasChanged = false;
-   //   }
-   //});
 
    for (var j = 0; j < 8; j++) {
       this.tracks.getTrack(j).getMute().addValueObserver( buttonObserver(j, this.mute, this.button1 ) );
@@ -164,8 +141,6 @@ function ReLoop() {
          this.trackHasChanged = false;
       }
    });
-
-
 
    return this;
 }
@@ -189,16 +164,17 @@ function init() {
    else if (CNAME === "KeyFadr") {
       sendSysex("F0 AD F6 01 11 02 F7");
    }
-   setScene (-1);
+   setScene(-1);
 
-   host.getNotificationSettings().setShouldShowSelectionNotifications (true);
-   host.getNotificationSettings().setShouldShowChannelSelectionNotifications (true);
-   host.getNotificationSettings().setShouldShowTrackSelectionNotifications (true);
-   host.getNotificationSettings().setShouldShowDeviceSelectionNotifications (true);
-   host.getNotificationSettings().setShouldShowDeviceLayerSelectionNotifications (true);
-   host.getNotificationSettings().setShouldShowPresetNotifications (true);
-   host.getNotificationSettings().setShouldShowMappingNotifications (true);
-   host.getNotificationSettings().setShouldShowValueNotifications (true);
+   host.getNotificationSettings().setShouldShowSelectionNotifications(true);
+   host.getNotificationSettings().setShouldShowChannelSelectionNotifications(true);
+   host.getNotificationSettings().setShouldShowTrackSelectionNotifications(true);
+   host.getNotificationSettings().setShouldShowDeviceSelectionNotifications(true);
+   host.getNotificationSettings().setShouldShowDeviceLayerSelectionNotifications(true);
+   host.getNotificationSettings().setShouldShowPresetNotifications(true);
+   host.getNotificationSettings().setShouldShowMappingNotifications(true);
+   host.getNotificationSettings().setShouldShowValueNotifications(true);
+
 }
 
 function onMidi(status, data1, data2) {
@@ -339,18 +315,17 @@ function onMidi(status, data1, data2) {
          else if (midi.data1 === RL.button3S[7]) {
             if (midi.isOn()) RL.tracks.scrollTracksDown();
          }
-         //User Controls:
-         if (midi.data1IsInRange(RL.LOWEST_CC, RL.HIGHEST_CC)) {
-            var index = midi.data1 - RL.LOWEST_CC;
-            RL.uControls.getControl(index).set(data2, 128);
-         }
+         ////User Controls:
+         //if (midi.data1IsInRange(RL.LOWEST_CC, RL.HIGHEST_CC)) {
+         //   var index = midi.data1 - RL.LOWEST_CC;
+         //   RL.uControls.getControl(index).set(data2, 128);
+         //}
       }
       // Scene 2:
       else if (midi.channel() === 2) {
          // Cursor Track Previous:
          if (midi.data1 === RL.button3S[6]) {
             if (midi.isOn()) RL.cTrack.selectPrevious();
-            //RL.trackHasChanged = true;
          }
          // Cursor Track Next:
          else if (midi.data1 === RL.button3S[7]) {
@@ -360,25 +335,21 @@ function onMidi(status, data1, data2) {
          // Cursor Device Previous:
          if (midi.data1 === RL.button3S[1]) {
             if (midi.isOn()) RL.cDevice.switchToDevice(DeviceType.ANY,ChainLocation.PREVIOUS);
-            //RL.deviceHasChanged = true;
          }
          // Cursor Device Next:
          else if (midi.data1 === RL.button3S[2]) {
             if (midi.isOn()) RL.cDevice.switchToDevice(DeviceType.ANY,ChainLocation.NEXT);
-            //RL.deviceHasChanged = true;
          }
          // Next Parameter Page:
          else if (midi.data1 === RL.button3S[0]) {
             if (midi.isOn()) {
                println(RL.nextPageEnabled);
-               //if (RL.pageNumber < (RL.pageCount-1)) {
                if (RL.nextPageEnabled) {
                      RL.cDevice.nextParameterPage();
                }
                else {
                   RL.cDevice.setParameterPage(0);
                }
-               //RL.pageHasChanged = true;
             }
          }
          // Macros:
