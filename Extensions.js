@@ -16,7 +16,7 @@ MidiData.prototype = {
 
    // Booleans for message type:
    isNoteOff: function() {
-      return((this.status & 0xF0) === 0x80) || ((this & 0xF0) === 0x90 && this.data2 === 0);
+      return((this.status & 0xF0) === 0x80) || ((this.status & 0xF0) === 0x90 && this.data2 === 0);
    },
    isNoteOn: function() {
       return(this.status & 0xF0) === 0x90;

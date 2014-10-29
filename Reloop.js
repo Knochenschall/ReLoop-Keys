@@ -4,10 +4,10 @@ var RL = null;
 
 function ReLoop() {
    // Create Midi Ports and Settings:
-   this.keys = host.getMidiInPort(0).createNoteInput(CNAME + " Keys", "?0????", "?1????", "?2????");
+   this.keys = host.getMidiInPort(0).createNoteInput("Keys", "?0????", "?1????", "?2????");
    this.keys.setShouldConsumeEvents(false);
    if (DRUMPADS) {
-      this.pads = host.getMidiInPort(0).createNoteInput(CNAME + " Pads", "?4????");
+      this.pads = host.getMidiInPort(0).createNoteInput("Pads", "?4????");
       this.pads.setShouldConsumeEvents(false);
    }
  	host.getMidiOutPort(0).setShouldSendMidiBeatClock(true);
@@ -44,6 +44,9 @@ function ReLoop() {
    this.metronome = false;
    this.overdub = false;
    this.nextPageEnabled = true;
+   this.currentScene = -1;
+   this.canScrollScenesDown = false;
+   this.canScrollScenesUp = false;
 
    // State Variables:
    this.isPlaying = false;
@@ -111,15 +114,21 @@ function ReLoop() {
    this.transport.addOverdubObserver(function(on) {
       this.overdub = on;
       sendMidi(RL.channel1, RL.recordS, on ? 127 : 0);
-      println("Test");
    });
 
-   this.cDevice.addNameObserver(50, "None", function(name) {
-      if (this.deviceHasChanged) {
-         host.showPopupNotification("Current Device: " + name);
-         this.deviceHasChanged = false;
-      }
+   this.tracks.addCanScrollScenesDownObserver(function(on) {
+      this.canScrollScenesDown = on;
    });
+   this.tracks.addCanScrollScenesUpObserver(function(on) {
+      this.canScrollScenesUp = on;
+   });
+
+   //this.cDevice.addNameObserver(50, "None", function(name) {
+   //   if (this.deviceHasChanged) {
+   //      host.showPopupNotification("Current Device: " + name);
+   //      this.deviceHasChanged = false;
+   //   }
+   //});
 
    this.cDevice.addNextParameterPageEnabledObserver(function(on) {
       this.nextPageEnabled = on;
@@ -128,20 +137,20 @@ function ReLoop() {
    this.cDevice.addPreviousParameterPageEnabledObserver(function(on) {
       //println(on);
    });
-   this.cDevice.addPageNamesObserver(function(names) {
-      this.pageNames = [];
-      for(var l = 0; l < arguments.length; l++) {
-         pageNames[l] = arguments[l];
-      }
-      pageCount = l;
-   })
-   this.cDevice.addSelectedPageObserver(0, function(page) {
-      this.pageNumber = page;
-      if (this.pageHasChanged) {
-         host.showPopupNotification ("Parameter Page: " + this.pageNames[page]);
-         this.pageHasChanged = false;
-      }
-   })
+   //this.cDevice.addPageNamesObserver(function(names) {
+   //   this.pageNames = [];
+   //   for(var l = 0; l < arguments.length; l++) {
+   //      pageNames[l] = arguments[l];
+   //   }
+   //   pageCount = l;
+   //});
+   //this.cDevice.addSelectedPageObserver(0, function(page) {
+   //   this.pageNumber = page;
+   //   if (this.pageHasChanged) {
+   //      host.showPopupNotification ("Parameter Page: " + this.pageNames[page]);
+   //      this.pageHasChanged = false;
+   //   }
+   //});
 
    for (var j = 0; j < 8; j++) {
       this.tracks.getTrack(j).getMute().addValueObserver( buttonObserver(j, this.mute, this.button1 ) );
@@ -155,6 +164,8 @@ function ReLoop() {
          this.trackHasChanged = false;
       }
    });
+
+
 
    return this;
 }
@@ -179,6 +190,15 @@ function init() {
       sendSysex("F0 AD F6 01 11 02 F7");
    }
    setScene (-1);
+
+   host.getNotificationSettings().setShouldShowSelectionNotifications (true);
+   host.getNotificationSettings().setShouldShowChannelSelectionNotifications (true);
+   host.getNotificationSettings().setShouldShowTrackSelectionNotifications (true);
+   host.getNotificationSettings().setShouldShowDeviceSelectionNotifications (true);
+   host.getNotificationSettings().setShouldShowDeviceLayerSelectionNotifications (true);
+   host.getNotificationSettings().setShouldShowPresetNotifications (true);
+   host.getNotificationSettings().setShouldShowMappingNotifications (true);
+   host.getNotificationSettings().setShouldShowValueNotifications (true);
 }
 
 function onMidi(status, data1, data2) {
@@ -186,7 +206,7 @@ function onMidi(status, data1, data2) {
    var midi = new MidiData(status, data1, data2);
 
    // Print Midi Input to Console
-   //printMidi(status, data1, data2);
+   printMidi(status, data1, data2);
    println(midi.channel());
 
    if (midi.isChannelController()) {
@@ -213,15 +233,6 @@ function onMidi(status, data1, data2) {
       else if (midi.data1 === RL.recordS) {
          if (midi.isOn()) RL.transport.toggleOverdub();
       }
-      // Toggle Metronome:
-      else if (midi.data1 === RL.button3S[5]) {
-         if (midi.isOn()) {
-            RL.transport.toggleClick();
-         }
-         else {
-            sendMidi(midi.status, midi.data1, RL.metronome ? 127 : 0);
-         }
-      }
       // Toggle Loop:
       else if (midi.data1 === RL.button3S[3]) {
          if (midi.isOn()) {
@@ -231,19 +242,45 @@ function onMidi(status, data1, data2) {
             sendMidi(midi.status, midi.data1, RL.loop ? 127 : 0);
          }
       }
+      // Tap Tempo:
+      else if (midi.data1 === RL.button3S[4]) {
+         if (midi.isOn()) RL.transport.tapTempo();
+      }
+      // Toggle Metronome:
+      else if (midi.data1 === RL.button3S[5]) {
+         if (midi.isOn()) {
+            RL.transport.toggleClick();
+         }
+         else {
+            sendMidi(midi.status, midi.data1, RL.metronome ? 127 : 0);
+         }
+      }
       // Launch Scene:
       else if (midi.data1IsInRange8(RL.button1S[0])) {
          var index = midi.data1 - RL.button1S[0];
          RL.tracks.launchScene(index);
+         RL.currentScene = index;
          setScene(index);
       }
       // Scroll Scenes Up:
       else if (midi.data1 === RL.octaveDownS) {
-         if (midi.isOn()) RL.tracks.scrollScenesUp();
+         if (midi.isOn()) {
+            if (RL.canScrollScenesUp) {
+               RL.currentScene += 1;
+            }
+            setScene(RL.currentScene);
+            RL.tracks.scrollScenesUp();
+         }
       }
       // Scroll Scenes Down:
       else if (midi.data1 === RL.octaveUpS) {
-         if (midi.isOn()) RL.tracks.scrollScenesDown();
+         if (midi.isOn()) {
+            if (RL.canScrollScenesDown) {
+               RL.currentScene -= 1;
+            }
+            RL.tracks.scrollScenesDown();
+         }
+         setScene(RL.currentScene);
       }
       // Mute:
       else if (midi.data1IsInRange8(RL.button1[0])) {
@@ -313,7 +350,7 @@ function onMidi(status, data1, data2) {
          // Cursor Track Previous:
          if (midi.data1 === RL.button3S[6]) {
             if (midi.isOn()) RL.cTrack.selectPrevious();
-            RL.trackHasChanged = true;
+            //RL.trackHasChanged = true;
          }
          // Cursor Track Next:
          else if (midi.data1 === RL.button3S[7]) {
@@ -323,24 +360,25 @@ function onMidi(status, data1, data2) {
          // Cursor Device Previous:
          if (midi.data1 === RL.button3S[1]) {
             if (midi.isOn()) RL.cDevice.switchToDevice(DeviceType.ANY,ChainLocation.PREVIOUS);
-            RL.deviceHasChanged = true;
+            //RL.deviceHasChanged = true;
          }
          // Cursor Device Next:
          else if (midi.data1 === RL.button3S[2]) {
             if (midi.isOn()) RL.cDevice.switchToDevice(DeviceType.ANY,ChainLocation.NEXT);
-            RL.deviceHasChanged = true;
+            //RL.deviceHasChanged = true;
          }
          // Next Parameter Page:
          else if (midi.data1 === RL.button3S[0]) {
             if (midi.isOn()) {
-               //println(RL.nextPageEnabled);
-               if (RL.pageNumber < (RL.pageCount-1)) {
-                  RL.cDevice.nextParameterPage();
+               println(RL.nextPageEnabled);
+               //if (RL.pageNumber < (RL.pageCount-1)) {
+               if (RL.nextPageEnabled) {
+                     RL.cDevice.nextParameterPage();
                }
                else {
                   RL.cDevice.setParameterPage(0);
                }
-               RL.pageHasChanged = true;
+               //RL.pageHasChanged = true;
             }
          }
          // Macros:
@@ -376,7 +414,11 @@ function setScene(index) {
 
    for (var i = 0; i < 8; i++) {
       RL.launch[i] = (i === index) ? true : false;
+      sendMidi(RL.channel2, RL.button1S[i], RL.launch[i] ? 127 : 0);
+      sendMidi(RL.channel2, RL.button1[i], RL.mute[i] ? 127 : 0);
       sendMidi(RL.channel1, RL.button1S[i], RL.launch[i] ? 127 : 0);
+      sendMidi(RL.channel1, RL.button1[i], RL.mute[i] ? 127 : 0);
+
    }
 
 }
